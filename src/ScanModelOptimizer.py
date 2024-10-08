@@ -678,9 +678,14 @@ def main():
     move_to_root_keep_rotation(merged)  # ヒエラルキーの最上位に移動
     # 統合メッシュ以外を削除
     for new_object in new_objects:
-        if new_object != merged:
-            print(f"Removing: {new_object.name}")
-            bpy.data.objects.remove(new_object, do_unlink=True)
+        if new_object != merged:  # メッシュ統合がなければ == になる
+            try:
+                delete_obj_name = new_object.name  # すでに削除されているとここでエラーになる メッシュ統合時なら正常動作
+                bpy.data.objects.remove(new_object, do_unlink=True)
+            except Exception as e:
+                pass
+            else:
+                print(f"Removed: {delete_obj_name}")
 
     # サイズ1のBBOXに入るよう一時的にスケールを変更する ベイク処理のパラメータを簡易に設定できるように
     scale_factor: float = scale_to_unit_box(merged, args.quality)
