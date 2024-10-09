@@ -590,14 +590,16 @@ def main():
     #     "--export_formats", type=str, nargs="*", default=[],
     #     help=f"出力ファイルフォーマット一覧 ({', '.join([ext[1:] for ext in ALLOWED_OUTPUT_EXTENSIONS])})")
     parser.add_argument("--output_blend", action="store_true", help="blendファイルも出力するか")
-    parser.add_argument("--quality", type=float, default=1.0, help="出力クオリティ（拡大して処理して縮小）")
+    parser.add_argument("--quality", type=float, default=1.0,
+                        help="出力クオリティ  通常1.0で大きいほど高品質になる")
     parser.add_argument("--decimate_ratio", type=float, default=0.5, help="ポリゴン削減率 1.0で削除しない")
     parser.add_argument("--merge_distance", type=float, default=0.001, help="頂点結合距離　0で結合しない")
     parser.add_argument("--do_only_remesh", action="store_true",
                         help="メッシュの統合のみ実行し、UV・テクスチャ関連の処理はしない")
     parser.add_argument("--texture_size", type=int, default=2048, help="出力テクスチャーサイズ")
     parser.add_argument(
-        "-tex", "--bake_texture", type=int, default=1, choices=[0, 1], help="テクスチャをベイクするか(1 or 0)")
+        "-tex", "--bake_texture", type=int, default=1, choices=[0, 1],
+        help="テクスチャをベイクするか(1 or 0)")
     parser.add_argument(
         "-nrm", "--bake_normal", type=int, default=1, choices=[0, 1], help="法線マップをベイクするか")
     parser.add_argument(
@@ -610,7 +612,7 @@ def main():
     parser.add_argument("--prevent_overwrite", action="store_true", help="ファイル上書きを許可しない")
     parser.add_argument("-ro", "--remove_object_names", type=str, nargs="*", default=[],
                         help="レンダリング時に削除したいオブジェクト名称（正規表現）の指定")
-    parser.add_argument("--confirm", action="store_true", help="確認メッセージを表示する")
+    parser.add_argument("--confirm", action="store_true", help="処理前に確認メッセージを表示する")
     args = parser.parse_args()
     args.quality = max(0.1, args.quality) * 1.0
     args.texture_size = max(256, args.texture_size)
@@ -688,7 +690,7 @@ def main():
                 print(f"Removed: {delete_obj_name}")
 
     # サイズ1のBBOXに入るよう一時的にスケールを変更する ベイク処理のパラメータを簡易に設定できるように
-    scale_factor: float = scale_to_unit_box(merged, args.quality)
+    scale_factor: float = scale_to_unit_box(merged, args.quality)  # 一度拡大して処理して戻すことで、処理制度をあげている
     scake_factor_inv = 1.0 / scale_factor
     print(f"Scale factor: {scale_factor}")
 
