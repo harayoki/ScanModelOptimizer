@@ -381,7 +381,7 @@ def bake_texture(
 
     bpy.context.scene.render.bake.use_selected_to_active = True  # 選択したオブジェクト間でベイク
     if bake_type == 'DIFFUSE':
-        bpy.context.scene.render.bake.use_pass_direct = True
+        bpy.context.scene.render.bake.use_pass_direct = False
         bpy.context.scene.render.bake.use_pass_color = True
         bpy.context.scene.render.bake.use_pass_indirect = False
     elif bake_type == 'NORMAL':
@@ -576,6 +576,8 @@ NORMAL_TEXTURE_NODE_NAME: str = "NormalTexture"
 ALLOWED_INPUT_EXTENSIONS: List[str] = [".glb", ".gltf"]
 ALLOWED_OUTPUT_EXTENSIONS: List[str] = [".glb", ".usdc"]  # ".fbx", ".obj"
 
+OUTPUT_BLEND_TIMING: List[str] = ["BEFORE_BAKE", "AFTER_BAKE", "AFTER_EXPORT"]
+
 
 def main():
     print(f"bpy version: {bpy.app.version_string}")
@@ -589,11 +591,14 @@ def main():
     # parser.add_argument(
     #     "--export_formats", type=str, nargs="*", default=[],
     #     help=f"出力ファイルフォーマット一覧 ({', '.join([ext[1:] for ext in ALLOWED_OUTPUT_EXTENSIONS])})")
-    parser.add_argument("--output_blend", action="store_true", help="blendファイルも出力するか")
+    parser.add_argument("--output_blend", action="store_true", help="詳細確認用のblendファイルも出力するか")
+    parser.add_argument("--output_blend_timing", type=str,
+                        choices=OUTPUT_BLEND_TIMING, default="AFTER_EXPORT",
+                        help="blendファイルも出力するタイミング")
     parser.add_argument("--quality", type=float, default=1.0,
                         help="出力クオリティ  通常1.0で大きいほど高品質になる")
     parser.add_argument("--decimate_ratio", type=float, default=0.5, help="ポリゴン削減率 1.0で削除しない")
-    parser.add_argument("--merge_distance", type=float, default=0.001, help="頂点結合距離　0で結合しない")
+    parser.add_argument("--merge_distance", type=float, default=0.002, help="頂点結合距離　0で結合しない")
     parser.add_argument("--do_only_remesh", action="store_true",
                         help="メッシュの統合のみ実行し、UV・テクスチャ関連の処理はしない")
     parser.add_argument("--texture_size", type=int, default=2048, help="出力テクスチャーサイズ")
@@ -647,6 +652,7 @@ def main():
     print(f"Output format: {args.export_formats}")
     if args.output_blend:
         print(f"Output blend file: {output_path_blend}")
+        print(f"Output blend timing: {args.output_blend_timing}")
     print(f"Quality: {args.quality}")
     print(f"Decimate ratio: {args.decimate_ratio}")
     print(f"Merge distance: {args.merge_distance}")
@@ -667,7 +673,11 @@ def main():
 
     bpy.ops.wm.open_mainfile(filepath=resource_path("blend/template.blend").as_posix())
     new_objects = load_model(input_file_path, args.remove_object_names)
-    print(f"Loaded objects: {new_objects}")
+    # print(f"Loaded objects: {new_objects}")
+
+    # 不必要なworkオブジェクトを削除(マテリアルのわかりやすい保持のため入っている）
+    print(f"work object : {bpy.data.objects.get(WORK_OBJ_NAME)}")
+    bpy.data.objects.remove(bpy.data.objects[WORK_OBJ_NAME], do_unlink=True)
 
     # メッシュオブジェクトを結合する
     mesh_objects: List[bpy.types.Object] = get_mesh_objects_in_hierarchy(new_objects)
@@ -690,7 +700,8 @@ def main():
                 print(f"Removed: {delete_obj_name}")
 
     # サイズ1のBBOXに入るよう一時的にスケールを変更する ベイク処理のパラメータを簡易に設定できるように
-    scale_factor: float = scale_to_unit_box(merged, args.quality)  # 一度拡大して処理して戻すことで、処理制度をあげている
+    # quality ：一度サイズ1から拡大して処理して戻すことで、処理制度をあげるための引数
+    scale_factor: float = scale_to_unit_box(merged, args.quality)
     scake_factor_inv = 1.0 / scale_factor
     print(f"Scale factor: {scale_factor}")
 
@@ -728,14 +739,25 @@ def main():
         # テクスチャ転写用にもう一度モデルを読み込む
         new_objects = load_model(input_file_path, args.remove_object_names)
         new_root_objects = get_root_objects(new_objects)
-        for new_root_object in new_root_objects:
-            print(f"New root object: {new_root_object.name}")
-            new_root_object.scale = Vector((scale_factor, scale_factor, scale_factor))
 
         # テクスチャの転写
         mesh_objects = get_mesh_objects_in_hierarchy(new_root_objects)
         mesh_object: bpy.types.Object = (
             join_mesh_objects(mesh_objects, bpy.context))  # 統合するとベイクが1回になって大幅に速い
+        move_to_root_keep_rotation(mesh_object)  # ヒエラルキーの最上位に移動
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)  # 現在のスケールがあるので確定
+        mesh_object.scale = Vector((scale_factor, scale_factor, scale_factor))  # ベイク先と同じ大きさに
+
+        # ベイク元モデルのゴミを削除
+        for new_root_object in new_root_objects:
+            try:
+                remove_object_tree(new_root_object.name)
+            except Exception as e:
+                pass
+
+        if args.output_blend and args.output_blend_timing == "BEFORE_BAKE":
+            save_blend_file(output_path_blend)
+
         if args.bake_texture:
             bake_texture(
                 [mesh_object], merged,
@@ -756,27 +778,22 @@ def main():
                 target_node_name=NORMAL_TEXTURE_NODE_NAME
             )
 
-        mesh_object.scale = Vector(  # blendファイルに残す場合があるのでスケールを元に戻す
-            (scake_factor_inv, scake_factor_inv, scake_factor_inv))
+        if args.output_blend and args.output_blend_timing == "AFTER_BAKE":
+            save_blend_file(output_path_blend)
 
-        # ベイク元モデルを削除
-        for new_root_object in new_root_objects:
-            remove_object_tree(new_root_object.name)
         # 不必要なイメージを削除
         remove_images("Image_.+")
+        bpy.data.objects.remove(bpy.data.objects[mesh_object.name], do_unlink=True)
 
     # ベイク用に調整していたスケールを元に戻す
     merged.scale = Vector((scake_factor_inv, scake_factor_inv, scake_factor_inv))
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
-    # 不必要なworkオブジェクトを削除
-    bpy.data.objects.remove(bpy.data.objects[WORK_OBJ_NAME], do_unlink=True)
-
     # 出力
-    if args.output_blend:
-        save_blend_file(output_path_blend)
     print(f"{get_time_stamp()} | Exporting model")
     export_model(merged, file_path=output_path, extensions=args.export_formats)
+    if args.output_blend and args.output_blend_timing == "AFTER_EXPORT":
+        save_blend_file(output_path_blend)
 
 
 if __name__ == "__main__":
