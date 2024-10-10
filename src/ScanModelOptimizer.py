@@ -354,7 +354,7 @@ def bake_texture(
         target_node_name: str,
         cage_extrusion: float,
         bake_type: Literal['DIFFUSE', 'NORMAL'],  # NOTE: 他にも増やせそう
-        bake_diffuse_from: Literal['DIFFUSE', 'EMIT'] = 'DIFFUSE'
+        bake_diffuse_from: Literal['DIFFUSE', 'EMIT', 'COMBINED'] | None= 'DIFFUSE'
     ) -> None:
     """
     テクスチャをベイクする
@@ -364,7 +364,7 @@ def bake_texture(
     :param mat_name: ベイク先オブジェクトのマテリアル名
     :param target_node_name: ベイク先マテリアル内のImage Textureノード名
     :param bake_type: ベイクタイプ（DIFFUSE, NORMAL）
-    :param bake_diffuse_from: diffuseベイクの場合のベイク元タイプ（DIFFUSE, EMIT）
+    :param bake_diffuse_from: diffuseベイクの場合のベイク元タイプ（DIFFUSE, EMIT, COMBINED）
     """
     print(f"{get_time_stamp()} | Baking texture({bake_type})")
     material = bpy.data.materials.get(mat_name)
@@ -436,7 +436,10 @@ def bake_texture(
     bpy.context.view_layer.objects.active = obj_to
 
     if bake_type == 'DIFFUSE':
-        bpy.ops.object.bake(type=bake_diffuse_from)
+        if bake_diffuse_from is None:
+            bpy.ops.object.bake()
+        else:
+            bpy.ops.object.bake(type=bake_diffuse_from)
     elif bake_type == 'NORMAL':
         bpy.ops.object.bake(type='NORMAL')
     else:
@@ -588,7 +591,7 @@ ALLOWED_INPUT_EXTENSIONS: List[str] = [".glb", ".gltf"]
 ALLOWED_OUTPUT_EXTENSIONS: List[str] = [".glb", ".usdc"]  # ".fbx", ".obj"
 
 OUTPUT_BLEND_TIMING: List[str] = ["BEFORE_BAKE", "AFTER_BAKE", "AFTER_EXPORT"]
-
+BAKE_DIFFUSE_FROM: List[str] = ["DIFFUSE", "EMIT", "COMBINED"]
 
 def main():
     print(f"bpy version: {bpy.app.version_string}")
@@ -602,33 +605,45 @@ def main():
     # parser.add_argument(
     #     "--export_formats", type=str, nargs="*", default=[],
     #     help=f"出力ファイルフォーマット一覧 ({', '.join([ext[1:] for ext in ALLOWED_OUTPUT_EXTENSIONS])})")
-    parser.add_argument("--output_blend", action="store_true", help="詳細確認用のblendファイルも出力するか")
+    parser.add_argument("--output_blend", action="store_true",
+                        help="詳細確認用のblendファイルも出力する場合に指定")
     parser.add_argument("--output_blend_timing", type=str,
                         choices=OUTPUT_BLEND_TIMING, default="AFTER_EXPORT",
-                        help="blendファイルも出力するタイミング")
+                        help=f"blendファイルも出力するタイミング "
+                             f"{' / '.join(OUTPUT_BLEND_TIMING)} (デフォルト: AFTER_EXPORT)")
     parser.add_argument("--quality", type=float, default=1.0,
                         help="出力クオリティ  通常1.0で大きいほど高品質になる")
-    parser.add_argument("--decimate_ratio", type=float, default=0.5, help="ポリゴン削減率 1.0で削除しない")
-    parser.add_argument("--merge_distance", type=float, default=0.002, help="頂点結合距離　0で結合しない")
+    parser.add_argument("--decimate_ratio", type=float, default=0.5,
+                        help="ポリゴン削減率 1.0で削除しない デフォルト0.5")
+    parser.add_argument("--merge_distance", type=float, default=0.002,
+                        help="頂点結合距離　0で結合しない デフォルト0.002")
     parser.add_argument("--do_only_remesh", action="store_true",
                         help="メッシュの統合のみ実行し、UV・テクスチャ関連の処理はしない")
-    parser.add_argument("--texture_size", type=int, default=2048, help="出力テクスチャーサイズ")
+    parser.add_argument("--texture_size", type=int, default=2048,
+                        help="出力テクスチャーサイズ デフォルト 2048")
     parser.add_argument(
         "-tex", "--bake_texture", type=int, default=1, choices=[0, 1],
-        help="テクスチャをベイクするか(1 or 0)")
+        help="テクスチャをベイクするか(1 or 0) デフォルト1")
     parser.add_argument(
-        "-nrm", "--bake_normal", type=int, default=1, choices=[0, 1], help="法線マップをベイクするか")
+        "-nrm", "--bake_normal", type=int, default=0, choices=[0, 1],
+        help="法線マップをベイクするか(1 or 0) デフォルト0")
     parser.add_argument(
-        "--cage_extrusion", type=float, default=0.01, help="ベイク時のケージの押し出し量")
+        "--cage_extrusion", type=float, default=0.01,
+        help="ベイク時のケージの押し出し量 デフォルト0.01")
     parser.add_argument(
-        "--bake_diffuse_from", type=str, default="DIFFUSE", choices=["DIFFUSE", "EMIT"],
-        help="DIFFUSEベイク元の指定　DIFFUSE: ディフューズカラー, EMIT: エミッションカラー")
-    parser.add_argument("--mat_metallic", type=float,  default=0.0, help="マテリアルのメタリック値")
-    parser.add_argument("--mat_roughness", type=float, default=0.5, help="マテリアルのラフネス値")
-    parser.add_argument("--prevent_overwrite", action="store_true", help="ファイル上書きを許可しない")
+        "--bake_diffuse_from", type=str, default="DIFFUSE", choices=BAKE_DIFFUSE_FROM,
+        help="DIFFUSEベイク元の指定 "
+             "'DIFFUSE':ディフューズカラー, 'EMIT':エミッションカラー 'COMBINED':最終合成 デフォルト: DIFFUSE")
+    parser.add_argument("--mat_metallic", type=float,  default=0.0,
+                        help="マテリアルのメタリック値 デフォルト 0.0")
+    parser.add_argument("--mat_roughness", type=float, default=0.5,
+                        help="マテリアルのラフネス値 デフォルト 0.5")
+    parser.add_argument("--prevent_overwrite", action="store_true",
+                        help="ファイル上書きを許可しない場合に指定")
     parser.add_argument("-ro", "--remove_object_names", type=str, nargs="*", default=[],
                         help="レンダリング時に削除したいオブジェクト名称（正規表現）の指定")
-    parser.add_argument("--confirm", action="store_true", help="処理前に確認メッセージを表示する")
+    parser.add_argument("--confirm", action="store_true",
+                        help="処理前に確認メッセージを表示する場合に指定")
     args = parser.parse_args()
     args.quality = max(0.1, args.quality) * 1.0
     args.texture_size = max(256, args.texture_size)
