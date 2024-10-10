@@ -615,8 +615,8 @@ def main():
                         help="出力クオリティ  通常1.0で大きいほど高品質になる")
     parser.add_argument("--decimate_ratio", type=float, default=0.5,
                         help="ポリゴン削減率 1.0で削除しない デフォルト0.5")
-    parser.add_argument("--merge_distance", type=float, default=0.002,
-                        help="頂点結合距離　0で結合しない デフォルト0.002")
+    parser.add_argument("--merge_distance", type=float, default=0.001,
+                        help="頂点結合距離　0で結合しない デフォルト0.001")
     parser.add_argument("--do_only_remesh", action="store_true",
                         help="メッシュの統合のみ実行し、UV・テクスチャ関連の処理はしない")
     parser.add_argument("--texture_size", type=int, default=2048,
