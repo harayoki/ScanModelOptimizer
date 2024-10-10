@@ -481,6 +481,17 @@ def get_unique_filepath(filepath: Path) -> Path:
         counter += 1
 
 
+def get_current_scene_vertex_count() -> int:
+    """
+    シーン内の頂点数を取得する
+    """
+    vertex_count = 0
+    for obj in bpy.data.objects:
+        if obj.type == 'MESH':
+            vertex_count += len(obj.data.vertices)
+    return vertex_count
+
+
 def export_model(obj: bpy.types.Object, file_path: Path, extensions: List[str]) -> None:
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
@@ -519,7 +530,7 @@ def export_model(obj: bpy.types.Object, file_path: Path, extensions: List[str]) 
             #     embed_textures=True,  # テクスチャを埋め込む
             #     path_mode='COPY',  # テクスチャのパスモード  # 真横にテクスチャを置けばいいらしい？
             # )
-        elif file_path.suffix ==".obj":
+        elif file_path.suffix == ".obj":
             raise NotImplementedError("OBJ export is not implemented yet.")
             # デフォルトではobjエクスポートはなくなった模様
             # bpy.ops.preferences.addon_enable(module="export_obj")  # アドオンを有効化 現状Error
@@ -672,12 +683,14 @@ def main():
             sys.exit("Aborted.")
 
     bpy.ops.wm.open_mainfile(filepath=resource_path("blend/template.blend").as_posix())
-    new_objects = load_model(input_file_path, args.remove_object_names)
-    # print(f"Loaded objects: {new_objects}")
-
     # 不必要なworkオブジェクトを削除(マテリアルのわかりやすい保持のため入っている）
     print(f"work object : {bpy.data.objects.get(WORK_OBJ_NAME)}")
     bpy.data.objects.remove(bpy.data.objects[WORK_OBJ_NAME], do_unlink=True)
+
+    new_objects = load_model(input_file_path, args.remove_object_names)
+    # print(f"Loaded objects: {new_objects}")
+
+    start_vertex_count = get_current_scene_vertex_count()
 
     # メッシュオブジェクトを結合する
     mesh_objects: List[bpy.types.Object] = get_mesh_objects_in_hierarchy(new_objects)
@@ -721,6 +734,8 @@ def main():
     merge_by_distance(merged, merge_distance=args.merge_distance)
     # デシメイトモディファイヤを利用せず直接ポリゴン数を削減
     decimate_geometry(merged, ratio=args.decimate_ratio)
+
+    final_vertex_count = get_current_scene_vertex_count()
 
     if not args.do_only_remesh:
 
@@ -795,10 +810,9 @@ def main():
     if args.output_blend and args.output_blend_timing == "AFTER_EXPORT":
         save_blend_file(output_path_blend)
 
+    print(f"Vertex count: {start_vertex_count} -> {final_vertex_count}")
+
 
 if __name__ == "__main__":
     main()
 
-
-# TODO FBXにテクスチャが含まれていない テクスチャは外部保存しないといけない模様
-# TODO objも対応 エクスポーターはデフォルトで亡くなった模様 テクスチャは外部保存しないといけない
