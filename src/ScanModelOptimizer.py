@@ -431,7 +431,11 @@ def bake_texture(
     # ベイク対象のノードを選択状態にする
     bpy.ops.object.select_all(action='DESELECT')
     for obj in objects_from:
-        obj.select_set(True)
+        try:
+            obj.select_set(True)
+        except Exception as e:
+            print(f"{obj} Error: {e}")
+            raise
     obj_to.select_set(True)
     bpy.context.view_layer.objects.active = obj_to
 
@@ -768,7 +772,15 @@ def main():
 
         # テクスチャ転写用にもう一度モデルを読み込む
         new_objects = load_model(input_file_path, args.remove_object_names)
+        print(f"Loaded objects: {new_objects}")
         new_root_objects = get_root_objects(new_objects)
+        print(f"Root objects: {new_root_objects}")
+        # ロードしたものがルートである場合がある 後の処理で消してはいけない
+        keep_root_objects = []
+        for new_root_object in new_root_objects:
+            for new_object in new_objects:
+                if new_root_object == new_object:
+                    keep_root_objects.append(new_root_object)
 
         # テクスチャの転写
         mesh_objects = get_mesh_objects_in_hierarchy(new_root_objects)
@@ -780,40 +792,54 @@ def main():
 
         # ベイク元モデルのゴミを削除
         for new_root_object in new_root_objects:
-            try:
-                remove_object_tree(new_root_object.name)
-            except Exception as e:
-                pass
+            if new_root_object not in keep_root_objects:
+                try:
+                    print(f"removing unnecessary object : {new_root_object.name}")
+                    remove_object_tree(new_root_object.name)
+                except Exception as e:
+                    pass
 
         if args.output_blend and args.output_blend_timing == "BEFORE_BAKE":
             save_blend_file(output_path_blend)
 
         if args.bake_texture:
-            bake_texture(
-                [mesh_object], merged,
-                bake_type='DIFFUSE',
-                texture_size=args.texture_size,
-                mat_name=MERGED_MATERIAL_NAME,
-                cage_extrusion=args.cage_extrusion,
-                target_node_name=MERGED_TEXTURE_NODE_NAME,
-                bake_diffuse_from=args.bake_diffuse_from  # 元オブジェクトはエミッションに色がある
-            )
+            try:
+                bake_texture(
+                    [mesh_object], merged,
+                    bake_type='DIFFUSE',
+                    texture_size=args.texture_size,
+                    mat_name=MERGED_MATERIAL_NAME,
+                    cage_extrusion=args.cage_extrusion,
+                    target_node_name=MERGED_TEXTURE_NODE_NAME,
+                    bake_diffuse_from=args.bake_diffuse_from  # 元オブジェクトはエミッションに色がある
+                )
+            except Exception as e:
+                print(f"Error in bake_texture: {e}")
+                print(f"テクスチャのベイクに失敗しました")
         if args.bake_normal:
-            bake_texture(
-                [mesh_object], merged,
-                bake_type='NORMAL',
-                texture_size=args.texture_size,
-                mat_name=MERGED_MATERIAL_NAME,
-                cage_extrusion=args.cage_extrusion,
-                target_node_name=NORMAL_TEXTURE_NODE_NAME
-            )
+            try:
+                bake_texture(
+                    [mesh_object], merged,
+                    bake_type='NORMAL',
+                    texture_size=args.texture_size,
+                    mat_name=MERGED_MATERIAL_NAME,
+                    cage_extrusion=args.cage_extrusion,
+                    target_node_name=NORMAL_TEXTURE_NODE_NAME
+                )
+            except Exception as e:
+                print(f"Error in bake_normal: {e}")
+                print(f"ノーマルのベイクに失敗しました")
 
         if args.output_blend and args.output_blend_timing == "AFTER_BAKE":
             save_blend_file(output_path_blend)
 
         # 不必要なイメージを削除
-        remove_images("Image_.+")
-        bpy.data.objects.remove(bpy.data.objects[mesh_object.name], do_unlink=True)
+        try:
+            remove_images("Image_.+")
+            bpy.data.objects.remove(bpy.data.objects[mesh_object.name], do_unlink=True)
+        except Exception as e:
+            print(f"Error in remove_images: {e}")
+            print(f"不必要なイメージの削除に失敗しました")
 
     # ベイク用に調整していたスケールを元に戻す
     merged.scale = Vector((scake_factor_inv, scake_factor_inv, scake_factor_inv))
